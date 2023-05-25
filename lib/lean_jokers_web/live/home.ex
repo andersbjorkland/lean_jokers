@@ -4,7 +4,13 @@ defmodule LeanJokersWeb.Live.Home do
 
   require Logger
 
+  @topic "jokes"
+
   def mount(_params, _session, socket) do
+    if connected?(socket) do
+      LeanJokersWeb.Endpoint.subscribe(@topic)
+    end
+
     jokes = LeanJokers.Jokes.Joke
       |> LeanJokers.Repo.all
 
@@ -34,6 +40,13 @@ defmodule LeanJokersWeb.Live.Home do
           element -> element
         end)
 
+    state = %{
+      joke: toggled_joke,
+      sender: self()
+    }
+
+    LeanJokersWeb.Endpoint.broadcast(@topic, "update_joke", state)
+
     {:noreply, assign(socket, :jokes, jokes)}
   end
 
@@ -57,6 +70,13 @@ defmodule LeanJokersWeb.Live.Home do
           element -> element
         end)
 
+    state = %{
+      joke: toggled_joke,
+      sender: self()
+    }
+
+    LeanJokersWeb.Endpoint.broadcast(@topic, "update_joke", state)
+
     {:noreply, assign(socket, :jokes, jokes)}
   end
 
@@ -75,8 +95,8 @@ defmodule LeanJokersWeb.Live.Home do
 
     joke = %{joke | has_liked: !joke.has_liked, likes: likes, dislikes: dislikes}
 
-    if (joke.has_disliked) do
-        %{joke | has_liked: false}
+    if (joke.has_liked) do
+        %{joke | has_disliked: false}
     else
       joke
     end
@@ -102,6 +122,25 @@ defmodule LeanJokersWeb.Live.Home do
     else
       joke
     end
+  end
+
+  def handle_info(%{topic: "jokes", event: "update_joke", payload: %{joke: joke, sender: sender}}, socket) do
+    jokes = if (sender == self()) do
+      socket.assigns.jokes
+    else
+      [socket_joke | _rest ] = Enum.filter(socket.assigns.jokes, &(&1.id == joke.id))
+      joke = %{joke | has_liked: socket_joke.has_liked, has_disliked: socket_joke.has_disliked }
+
+      joke_id = joke.id
+
+      socket.assigns.jokes
+        |> Enum.map(fn
+          %LeanJokers.Jokes.Joke{id: ^joke_id} -> joke
+          element -> element
+        end)
+    end
+
+    {:noreply, assign(socket, jokes: jokes)}
   end
 
 end
